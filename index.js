@@ -96,15 +96,26 @@ async function main() {
 
     console.log('🤖 Starting Discord Music Bot...');
 
-    // Check for optional system dependency: yt-dlp (used as a last-resort extractor fallback).
+    // Optional system dependency: yt-dlp.
+    // Respect `DISABLE_YTDLP_CHECK=1` (or `SKIP_YTDLP_CHECK=1`) to skip any startup checks.
+    // Otherwise, attempt a best-effort (non-blocking) resolution using our `ensureYtDlp()` helper.
     try {
-      const { spawnSync } = require('child_process');
-      const which = spawnSync('which', ['yt-dlp']);
-      if (which.status !== 0) {
-        console.warn('⚠️ Optional binary `yt-dlp` not found in PATH. For better YouTube support, install yt-dlp: `brew install yt-dlp` or see https://github.com/yt-dlp/yt-dlp');
+      if (process.env.DISABLE_YTDLP_CHECK === '1' || process.env.SKIP_YTDLP_CHECK === '1') {
+        console.log('ℹ️ yt-dlp startup check disabled via environment variable');
+      } else {
+        const { ensureYtDlp } = require('./src/utils/ytDlp');
+
+        // Call without awaiting so startup isn't blocked. Only log a short message on failure.
+        ensureYtDlp()
+          .then((exePath) => {
+            if (exePath) console.log(`✓ yt-dlp available at ${exePath}`);
+          })
+          .catch(() => {
+            console.log('ℹ️ yt-dlp not available; falling back to alternative extractors');
+          });
       }
     } catch (err) {
-      // non-fatal
+      // non-fatal — keep startup quiet on environments where require may fail
     }
 
     const commands = loadCommands();

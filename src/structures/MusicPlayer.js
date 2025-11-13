@@ -9,7 +9,7 @@ const {
 } = require('@discordjs/voice');
 const play = require('play-dl');
 const ytdl = require('ytdl-core');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const MusicQueue = require('./MusicQueue');
 const EmbedCreator = require('../utils/embeds');
@@ -144,7 +144,7 @@ class MusicPlayer {
     try {
       // Defensive checks: ensure we have a valid string URL before calling play-dl.
       if (!track || typeof track.url !== 'string' || track.url === 'undefined' || track.url.trim() === '') {
-        console.error('Invalid track data when attempting to play:', track);
+        console.error('❌ Invalid track data when attempting to play:', track);
         if (queue.textChannel) {
           queue.textChannel.send({
             embeds: [EmbedCreator.error('Playback Error', 'Track URL is missing or invalid. Skipping to next track.')] 
@@ -154,79 +154,247 @@ class MusicPlayer {
         return;
       }
 
+      console.log('🎵 Now playing:', track.title);
+      console.log('📎 Track URL:', track.url);
+
       const isYouTube = /(?:youtube\.com\/watch\?v=|youtu\.be\/)/i.test(track.url);
       let resource;
 
       // For YouTube URLs, use optimized extraction strategy
       if (isYouTube) {
         // Try yt-dlp first as it's most reliable for YouTube
+        let ytDlpFailed = false;
         try {
+          console.log('🎵 Attempting to extract with yt-dlp...');
           const { ensureYtDlp } = require('../utils/ytDlp');
           const ytDlpExecutable = await ensureYtDlp();
 
-          const args = [
-            '-o', '-',
-            '-f', 'bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio',
-            '--no-playlist',
-            '--quiet',
-            '--no-warnings',
-            '--extract-audio',
-            '--audio-quality', '0',
-            track.url
-          ];
+          // Decide whether to request yt-dlp to extract audio using ffmpeg
+          // or to stream a native audio container directly. The latter is
+          // safer on restricted hosts (no ffmpeg required). The behavior
+          // can be forced with `YTDLP_FORCE_EXTRACT_AUDIO=1` when you have
+          // ffmpeg available on the host.
+          const forceExtract = process.env.YTDLP_FORCE_EXTRACT_AUDIO === '1';
+          let ffmpegPresent = false;
+          try {
+            const which = spawnSync('which', ['ffmpeg']);
+            ffmpegPresent = which && which.status === 0;
+          } catch (e) {
+            ffmpegPresent = false;
+          }
+
+          let args;
+          if (forceExtract) {
+            if (ffmpegPresent) {
+              // Ask yt-dlp to extract audio via ffmpeg (more compatible formats)
+              args = [
+                  '-o', '-',
+                  '-f', 'bestaudio',
+                  '--no-playlist',
+                  '--quiet',
+                  '--no-warnings',
+                  '--extract-audio',
+                  '--audio-quality', '0',
+                  '--no-check-certificate',
+                  '--extractor-args', 'youtube:player_client=default',
+                  track.url
+                ];
+            } else {
+              console.warn('⚠️ YTDLP_FORCE_EXTRACT_AUDIO set but ffmpeg not found; falling back to streaming a native audio container');
+              args = [
+                '-o', '-',
+                '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
+                '--no-playlist',
+                '--quiet',
+                '--no-warnings',
+                '--no-check-certificate',
+                track.url
+              ];
+            }
+          } else {
+            // Default: stream audio container directly (no ffmpeg required)
+            args = [
+              '-o', '-',
+              '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
+              '--no-playlist',
+              '--quiet',
+              '--no-warnings',
+              '--no-check-certificate',
+              '--extractor-args', 'youtube:player_client=default',
+              track.url
+            ];
+          }
 
           const proc = spawn(ytDlpExecutable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
           // Store the process for cleanup
           queue.ytDlpProcess = proc;
 
-          // Clean up process on exit
-          proc.on('exit', (code) => {
+          let stderrData = '';
+          let hasOutputData = false;
+
+          proc.stdout.on('data', () => {
+            hasOutputData = true;
+          });
+
+          proc.stderr.on('data', (data) => {
+            stderrData += data.toString();
+          });
+
+          // Wait briefly for yt-dlp to produce stdout. If it exits or
+          // times out without producing data, fallback to other extractors.
+          const waitForOutput = () => new Promise((resolve) => {
+            let resolved = false;
+
+            const onData = () => {
+              if (resolved) return;
+              resolved = true;
+              cleanupListeners();
+              resolve(true);
+            };
+
+            const onExit = () => {
+              if (resolved) return;
+              resolved = true;
+              cleanupListeners();
+              resolve(false);
+            };
+
+            const onError = () => {
+              if (resolved) return;
+              resolved = true;
+              cleanupListeners();
+              resolve(false);
+            };
+
+            const timeout = setTimeout(() => {
+              if (resolved) return;
+              resolved = true;
+              cleanupListeners();
+              resolve(false);
+            }, 5000);
+
+            function cleanupListeners() {
+              clearTimeout(timeout);
+              try { proc.stdout.removeListener('data', onData); } catch (e) {}
+              try { proc.removeListener('exit', onExit); } catch (e) {}
+              try { proc.removeListener('error', onError); } catch (e) {}
+            }
+
+            proc.stdout.once('data', onData);
+            proc.once('exit', onExit);
+            proc.once('error', onError);
+          });
+
+          const produced = await waitForOutput();
+          if (!produced) {
+            // yt-dlp failed or timed out before producing usable stdout.
+            try {
+              if (queue.ytDlpProcess === proc) queue.ytDlpProcess = null;
+              proc.kill('SIGTERM');
+            } catch (e) {}
+
+            console.warn('⚠️ yt-dlp did not produce output or was terminated; falling back to other extractors');
+            if (process.env.YTDLP_DEBUG === '1' && stderrData) {
+              console.error('--- yt-dlp stderr (debug) ---');
+              console.error(stderrData);
+              console.error('--- end yt-dlp stderr ---');
+            }
+
+            // Fallback to play-dl
+            try {
+              const stream = await play.stream(track.url, { quality: 2 });
+              resource = createAudioResource(stream.stream, {
+                inputType: stream.type,
+                inlineVolume: true
+              });
+              console.log('✓ Using play-dl for audio streaming (fallback)');
+            } catch (playDlErr) {
+              console.warn('⚠️ play-dl failed as fallback:', playDlErr && playDlErr.message);
+              // Last fallback: ytdl-core
+              try {
+                const ytStream = ytdl(track.url, {
+                  filter: 'audioonly',
+                  quality: 'highestaudio',
+                  highWaterMark: 1 << 25
+                });
+                ytStream.on('error', streamErr => {
+                  console.error('ytdl stream error:', streamErr);
+                });
+                resource = createAudioResource(ytStream, {
+                  inputType: StreamType.Arbitrary,
+                  inlineVolume: true
+                });
+                console.log('✓ Using ytdl-core for audio streaming (fallback)');
+              } catch (ytdlErr) {
+                console.error('❌ All extraction methods failed for (fallback):', track.url);
+                if (queue.textChannel) {
+                  queue.textChannel.send({
+                    embeds: [EmbedCreator.error('Playback Error', 'Could not extract audio stream (fallbacks failed). Try another song.')]
+                  });
+                }
+                this.handleTrackEnd(guildId);
+                return;
+              }
+            }
+          } else {
+            // produced data; use proc stdout as resource
+            resource = createAudioResource(proc.stdout, {
+              inputType: StreamType.Arbitrary,
+              inlineVolume: true
+            });
+
+            resource.playStream.on('end', () => {
+              queue.cleanupProcess();
+            });
+
+            resource.playStream.on('error', (err) => {
+              console.error('❌ Audio stream error:', err);
+              queue.cleanupProcess();
+            });
+
+            console.log('✓ Using yt-dlp for audio extraction');
+          }
+
+          proc.on('exit', (code, signal) => {
             if (queue.ytDlpProcess === proc) {
               queue.ytDlpProcess = null;
+            }
+            if (code !== 0) {
+              console.error('❌ yt-dlp exited with code:', code, 'signal:', signal);
+              if (stderrData) console.error('yt-dlp error output:', stderrData);
+            }
+            // If debug logging is enabled, always print stderr to aid diagnosis.
+            if (process.env.YTDLP_DEBUG === '1' && stderrData) {
+              console.error('--- yt-dlp stderr (debug) ---');
+              console.error(stderrData);
+              console.error('--- end yt-dlp stderr ---');
             }
           });
 
           proc.on('error', (err) => {
-            console.error('yt-dlp process error:', err);
-            if (queue.ytDlpProcess === proc) {
-              queue.ytDlpProcess = null;
-            }
+            if (queue.ytDlpProcess === proc) queue.ytDlpProcess = null;
+            console.error('❌ yt-dlp process error:', err);
           });
-
-          proc.stderr.on('data', () => {});
-
-          resource = createAudioResource(proc.stdout, { 
-            inputType: StreamType.Arbitrary,
-            inlineVolume: true
-          });
-
-          // Clean up the process when the resource finishes
-          resource.playStream.on('end', () => {
-            queue.cleanupProcess();
-          });
-
-          resource.playStream.on('error', () => {
-            queue.cleanupProcess();
-          });
-
-          console.log('✓ Using yt-dlp for high-quality audio extraction');
         } catch (ytDlpErr) {
-          console.warn('yt-dlp extraction failed, trying play-dl:', ytDlpErr && ytDlpErr.message);
+          ytDlpFailed = true;
+          console.warn('⚠️ yt-dlp failed:', ytDlpErr && ytDlpErr.message);
 
           // Fallback to play-dl
           try {
+            console.log('🎵 Attempting to stream with play-dl...');
             const stream = await play.stream(track.url, { quality: 2 });
             resource = createAudioResource(stream.stream, { 
               inputType: stream.type,
               inlineVolume: true
             });
-            console.log('✓ Using play-dl');
+            console.log('✓ Using play-dl for audio streaming');
           } catch (playDlErr) {
-            console.warn('play-dl failed, trying ytdl-core:', playDlErr && playDlErr.message);
+            console.warn('⚠️ play-dl failed:', playDlErr && playDlErr.message);
 
             // Last fallback: ytdl-core
             try {
+              console.log('🎵 Attempting to stream with ytdl-core...');
               const ytStream = ytdl(track.url, { 
                 filter: 'audioonly',
                 quality: 'highestaudio',
@@ -241,12 +409,15 @@ class MusicPlayer {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: true
               });
-              console.log('✓ Using ytdl-core');
+              console.log('✓ Using ytdl-core for audio streaming');
             } catch (ytdlErr) {
-              console.error('All extraction methods failed:', ytdlErr && ytdlErr.message);
+              console.error('❌ All extraction methods failed for:', track.url);
+              console.error('yt-dlp error:', ytDlpErr && ytDlpErr.message);
+              console.error('play-dl error:', playDlErr && playDlErr.message);
+              console.error('ytdl-core error:', ytdlErr && ytdlErr.message);
               if (queue.textChannel) {
                 queue.textChannel.send({ 
-                  embeds: [EmbedCreator.error('Playback Error', 'Could not extract audio stream. YouTube may be blocking requests.')] 
+                  embeds: [EmbedCreator.error('Playback Error', 'Could not extract audio stream. The video may be restricted or unavailable. Try another song.')] 
                 });
               }
               this.handleTrackEnd(guildId);
@@ -257,16 +428,18 @@ class MusicPlayer {
       } else {
         // For non-YouTube URLs, try play-dl
         try {
+          console.log('🎵 Streaming non-YouTube URL with play-dl...');
           const stream = await play.stream(track.url, { quality: 2 });
           resource = createAudioResource(stream.stream, { 
             inputType: stream.type,
             inlineVolume: true
           });
+          console.log('✓ Using play-dl for non-YouTube URL');
         } catch (err) {
-          console.error('play-dl failed for non-YouTube URL:', err && err.message);
+          console.error('❌ play-dl failed for non-YouTube URL:', err && err.message);
           if (queue.textChannel) {
             queue.textChannel.send({ 
-              embeds: [EmbedCreator.error('Playback Error', 'Could not play this URL.')] 
+              embeds: [EmbedCreator.error('Playback Error', 'Could not play this URL. Please try a YouTube link.')] 
             });
           }
           this.handleTrackEnd(guildId);

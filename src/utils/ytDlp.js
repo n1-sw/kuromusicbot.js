@@ -56,9 +56,19 @@ async function downloadYtDlp(dest) {
 }
 
 async function ensureYtDlp() {
+  // If the environment requests we skip any yt-dlp download attempts (useful on
+  // restricted hosting like Wispbyte), only check the system PATH and do not
+  // attempt to download into the cache.
+  const skipDownload = process.env.DISABLE_YTDLP_CHECK === '1' || process.env.SKIP_YTDLP_CHECK === '1' || process.env.DISABLE_YTDLP_DOWNLOAD === '1';
+
   // 1) check system PATH
   const system = which('yt-dlp');
   if (system) return system;
+
+  if (skipDownload) {
+    // Caller should fallback to other extractors when yt-dlp isn't available.
+    throw new Error('yt-dlp not available on PATH and downloads are disabled by environment');
+  }
 
   // 2) check cache and validate age
   try {

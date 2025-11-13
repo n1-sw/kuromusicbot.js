@@ -3,7 +3,7 @@ require("dotenv").config();
 module.exports = {
   token:
     process.env.DISCORD_TOKEN ||
-    "",
+    "MTQzODQ0MTg3MTE4NDQ5NDY1Mw.Gikq_H.cDHKoWp-iYJK6I6Wh3HtRHkgKKjLFah5NIsMfM",
   clientId: process.env.CLIENT_ID || "1438441871184494653",
   ownerId: process.env.OWNER_ID || "698131338846404609",
   prefix: process.env.PREFIX || "!",

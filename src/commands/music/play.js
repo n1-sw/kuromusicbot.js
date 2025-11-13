@@ -32,7 +32,7 @@ async function findPlayableVideo(query, maxAttempts = 5) {
           if (!r || typeof r !== 'object') continue;
           
           const url = r.url || r.permalink || r.link || '';
-          if (typeof url === 'string' && url.trim() !== '' && url.includes('youtube.com' || 'youtu.be')) {
+          if (typeof url === 'string' && url.trim() !== '' && (url.includes('youtube.com') || url.includes('youtu.be'))) {
             // Validate the result has essential properties
             if (r.title || r.name) {
               return r;
@@ -153,19 +153,38 @@ module.exports = {
         }
       } else {
         // General search: use robust resolver
-        const video = await findPlayableVideo(query, 5);
-
-        if (!video || !video.url) {
+        console.log('🔍 Searching for:', query);
+        const searchResults = await play.search(query, { limit: 1 });
+        
+        if (!searchResults || searchResults.length === 0) {
           const embed = EmbedCreator.error('No Results', 'No results found for your query.');
           return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
         }
 
+        const searchResult = searchResults[0];
+        console.log('✓ Found video:', searchResult.title);
+        
+        // Get canonical video info to ensure valid URL
+        let videoInfo;
+        try {
+          // If we have a URL, use it; otherwise construct from video ID
+          const videoUrl = searchResult.url || `https://www.youtube.com/watch?v=${searchResult.id}`;
+          videoInfo = await play.video_info(videoUrl);
+        } catch (err) {
+          console.error('Failed to get video info:', err);
+          const embed = EmbedCreator.error('Error', 'Could not fetch video information.');
+          return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
+        }
+
+        const vd = videoInfo.video_details;
+        console.log('✓ Normalized URL:', vd.url);
+
         tracks.push({
-          title: video.title || video.name || 'Unknown Title',
-          url: video.url,
-          duration: video.durationInSec || 0,
-          thumbnail: (video.thumbnails && Array.isArray(video.thumbnails) && video.thumbnails.length > 0) ? video.thumbnails[0].url : 'https://via.placeholder.com/120',
-          author: video.channel?.name || 'Unknown Artist',
+          title: vd.title || 'Unknown Title',
+          url: vd.url,
+          duration: vd.durationInSec || 0,
+          thumbnail: (vd.thumbnails && Array.isArray(vd.thumbnails) && vd.thumbnails.length > 0) ? vd.thumbnails[0].url : 'https://via.placeholder.com/120',
+          author: vd.channel?.name || 'Unknown Artist',
           requestedBy: member.user.id
         });
       }
