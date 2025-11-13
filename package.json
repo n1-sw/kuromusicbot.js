@@ -11,13 +11,14 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@discordjs/voice": "^0.18.0",
+    "@discordjs/voice": "^0.19.0",
+    "@snazzah/davey": "^0.1.7",
     "discord.js": "^14.24.2",
     "dotenv": "^17.2.3",
     "ffmpeg-static": "^5.2.0",
-    "mongodb": "^7.0.0",
     "opusscript": "^0.0.8",
     "play-dl": "^1.9.7",
+    "yt-search": "^2.13.1",
     "ytdl-core": "^4.11.5"
   }
 }

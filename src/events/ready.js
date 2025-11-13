@@ -1,6 +1,6 @@
 const { ActivityType } = require('discord.js');
 const config = require('../../config/config');
-const mongodb = require('../database/mongodb');
+const dataStore = require('../database/LocalDataStore');
 
 module.exports = {
   // v14+ renamed the gateway READY event to 'clientReady' to avoid confusion
@@ -11,7 +11,7 @@ module.exports = {
     console.log(`✅ Logged in as ${client.user.tag}`);
     console.log(`📊 Serving ${client.guilds.cache.size} servers`);
     
-    await mongodb.connect();
+    await dataStore.init();
 
     let statusIndex = 0;
     const updateStatus = () => {
@@ -43,6 +43,6 @@ module.exports = {
     updateStatus();
     setInterval(updateStatus, 15000);
 
-    await mongodb.updateStats('botStarts', 1);
+    await dataStore.updateStats('botStarts', 1);
   }
 };

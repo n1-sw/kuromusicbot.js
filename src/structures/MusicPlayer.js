@@ -39,8 +39,8 @@ class MusicPlayer {
       // Wait for the connection to enter Ready or Connecting state to ensure it's established.
       try {
         await Promise.race([
-          entersState(connection, 'Ready', 30000),
-          entersState(connection, 'Connecting', 30000),
+          entersState(connection, VoiceConnectionStatus.Ready, 30000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 30000),
         ]);
       } catch (readyError) {
         console.error('Voice connection failed to reach Ready/Connecting state:', readyError && readyError.message);
@@ -205,13 +205,16 @@ class MusicPlayer {
                 throw ensureErr;
               }
 
-              const args = ['-o', '-', '-f', 'bestaudio[ext=webm]/bestaudio', '--no-playlist', track.url];
+              const args = [
+                '-o', '-', 
+                '-f', 'bestaudio[ext=webm]/bestaudio', 
+                '--no-playlist',
+                '--quiet',
+                '--no-warnings',
+                track.url
+              ];
 
-              const proc = spawn(ytDlpExecutable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-
-              proc.stderr.on('data', data => {
-                console.error('yt-dlp stderr:', data.toString());
-              });
+              const proc = spawn(ytDlpExecutable, args, { stdio: ['ignore', 'pipe', 'ignore'] });
 
               proc.on('error', procErr => {
                 console.error('yt-dlp spawn error:', procErr);

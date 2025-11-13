@@ -1,4 +1,5 @@
-const mongodb = require('../database/mongodb');
+const { MessageFlags } = require('discord.js');
+const dataStore = require('../database/LocalDataStore');
 const EmbedCreator = require('../utils/embeds');
 
 module.exports = {
@@ -12,7 +13,7 @@ module.exports = {
 
     try {
       await command.execute(interaction, null, client);
-      await mongodb.updateStats('commandsExecuted', 1);
+      await dataStore.updateStats('commandsExecuted', 1);
     } catch (error) {
       console.error(`Error executing slash command ${interaction.commandName}:`, error);
       
@@ -20,9 +21,9 @@ module.exports = {
         const embed = EmbedCreator.error('Command Error', 'There was an error executing this command.');
         
         if (interaction.deferred || interaction.replied) {
-          await interaction.followUp({ embeds: [embed], ephemeral: true });
+          await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
         } else {
-          await interaction.reply({ embeds: [embed], ephemeral: true });
+          await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
         }
       } catch (replyError) {
         console.error('Could not send error message (possibly missing permissions):', replyError.message);

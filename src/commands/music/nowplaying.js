@@ -10,13 +10,16 @@ module.exports = {
   aliases: ['np', 'current'],
   async execute(interaction, args, client) {
     const isSlash = !args;
+    
+    if (isSlash) await interaction.deferReply();
+    
     const member = isSlash ? interaction.member : interaction.member;
 
     const queue = musicPlayer.getQueue(member.guild.id);
 
     if (!queue.currentTrack || !queue.isPlaying) {
       const embed = EmbedCreator.error('Nothing Playing', 'There is nothing playing right now.');
-      return isSlash ? interaction.reply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
+      return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
     }
 
     const embed = EmbedCreator.nowPlaying(queue.currentTrack, queue.currentTrack.requestedBy);
@@ -29,6 +32,6 @@ module.exports = {
       });
     }
 
-    return isSlash ? interaction.reply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
+    return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
   }
 };

@@ -26,16 +26,23 @@ async function findPlayableVideo(query, maxAttempts = 5) {
     try {
       const limit = Math.min(maxAttempts, 5);
       const results = await play.search(q, { limit });
-      if (results && results.length > 0) {
-        // Prefer the first result that has a usable URL
+      if (results && Array.isArray(results) && results.length > 0) {
+        // Prefer the first result that has a usable URL and valid structure
         for (const r of results) {
-          const url = r.url || r.permalink || '';
-          if (typeof url === 'string' && url.trim() !== '') return r;
+          if (!r || typeof r !== 'object') continue;
+          
+          const url = r.url || r.permalink || r.link || '';
+          if (typeof url === 'string' && url.trim() !== '' && url.includes('youtube.com' || 'youtu.be')) {
+            // Validate the result has essential properties
+            if (r.title || r.name) {
+              return r;
+            }
+          }
         }
       }
     } catch (err) {
-      // ignore and try next variant
-      console.warn('Search attempt failed for query', q, err && err.message);
+      // ignore and try next variant - don't log warnings to reduce noise
+      continue;
     }
   }
 
@@ -55,30 +62,33 @@ module.exports = {
   aliases: ['p'],
   async execute(interaction, args, client) {
     const isSlash = !args;
+    
+    if (isSlash) await interaction.deferReply();
+    
     const member = isSlash ? interaction.member : interaction.member;
     const channel = isSlash ? interaction.channel : interaction.channel;
 
     if (!member.voice.channel) {
       const embed = EmbedCreator.error('Not in Voice Channel', 'You need to be in a voice channel to play music!');
-      return isSlash ? interaction.reply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
+      return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
     }
 
     const query = isSlash ? interaction.options.getString('query') : args.join(' ');
 
     if (!query) {
       const embed = EmbedCreator.error('No Query', 'Please provide a song name or URL!');
-      return isSlash ? interaction.reply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
+      return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
     }
 
-    if (isSlash) await interaction.deferReply();
-
     try {
-      await play.setToken({
-        spotify: {
-          client_id: config.spotifyClientId,
-          client_secret: config.spotifyClientSecret
-        }
-      });
+      if (config.spotifyClientId && config.spotifyClientSecret) {
+        await play.setToken({
+          spotify: {
+            client_id: config.spotifyClientId,
+            client_secret: config.spotifyClientSecret
+          }
+        });
+      }
 
       let tracks = [];
       let playlistName = null;
@@ -90,7 +100,7 @@ module.exports = {
           title: vd.title || 'Unknown Title',
           url: vd.url,
           duration: vd.durationInSec || 0,
-          thumbnail: (vd.thumbnails && vd.thumbnails.length > 0) ? vd.thumbnails[0].url : 'https://via.placeholder.com/120',
+          thumbnail: (vd.thumbnails && Array.isArray(vd.thumbnails) && vd.thumbnails.length > 0) ? vd.thumbnails[0].url : 'https://via.placeholder.com/120',
           author: vd.channel?.name || 'Unknown Artist',
           requestedBy: member.user.id
         });
@@ -103,23 +113,23 @@ module.exports = {
           title: video.title || 'Unknown Title',
           url: video.url,
           duration: video.durationInSec || 0,
-          thumbnail: (video.thumbnails && video.thumbnails.length > 0) ? video.thumbnails[0].url : 'https://via.placeholder.com/120',
+          thumbnail: (video.thumbnails && Array.isArray(video.thumbnails) && video.thumbnails.length > 0) ? video.thumbnails[0].url : 'https://via.placeholder.com/120',
           author: video.channel?.name || 'Unknown Artist',
           requestedBy: member.user.id
         }));
       } else if (play.sp_validate(query) === 'track') {
         const spotifyData = await play.spotify(query);
         // Try to find a playable video for this Spotify track using robust search
-        const searchQuery = `${spotifyData.name} ${spotifyData.artists[0].name}`;
+        const searchQuery = `${spotifyData.name} ${spotifyData.artists[0]?.name || 'Unknown'}`;
         const video = await findPlayableVideo(searchQuery, 5);
         
-        if (video) {
+        if (video && video.url) {
           tracks.push({
-            title: video.title || spotifyData.name,
-            url: video.url || video.permalink || '',
+            title: video.title || video.name || spotifyData.name,
+            url: video.url,
             duration: video.durationInSec || 0,
-            thumbnail: (video.thumbnails && video.thumbnails.length > 0) ? video.thumbnails[0].url : 'https://via.placeholder.com/120',
-            author: video.channel?.name || spotifyData.artists[0].name,
+            thumbnail: (video.thumbnails && Array.isArray(video.thumbnails) && video.thumbnails.length > 0) ? video.thumbnails[0].url : 'https://via.placeholder.com/120',
+            author: video.channel?.name || spotifyData.artists[0]?.name || 'Unknown Artist',
             requestedBy: member.user.id
           });
         }
@@ -128,15 +138,15 @@ module.exports = {
         playlistName = spotifyData.name;
         
         for (const track of spotifyData.tracks.slice(0, 50)) {
-          const searchQuery = `${track.name} ${track.artists[0].name}`;
+          const searchQuery = `${track.name} ${track.artists[0]?.name || 'Unknown'}`;
           const video = await findPlayableVideo(searchQuery, 5);
-          if (video) {
+          if (video && video.url) {
             tracks.push({
-              title: video.title || track.name,
-              url: video.url || video.permalink || '',
+              title: video.title || video.name || track.name,
+              url: video.url,
               duration: video.durationInSec || 0,
-              thumbnail: (video.thumbnails && video.thumbnails.length > 0) ? video.thumbnails[0].url : 'https://via.placeholder.com/120',
-              author: video.channel?.name || track.artists[0].name,
+              thumbnail: (video.thumbnails && Array.isArray(video.thumbnails) && video.thumbnails.length > 0) ? video.thumbnails[0].url : 'https://via.placeholder.com/120',
+              author: video.channel?.name || track.artists[0]?.name || 'Unknown Artist',
               requestedBy: member.user.id
             });
           }
@@ -145,16 +155,16 @@ module.exports = {
         // General search: use robust resolver
         const video = await findPlayableVideo(query, 5);
 
-        if (!video) {
+        if (!video || !video.url) {
           const embed = EmbedCreator.error('No Results', 'No results found for your query.');
           return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
         }
 
         tracks.push({
-          title: video.title || 'Unknown Title',
-          url: video.url || video.permalink || '',
+          title: video.title || video.name || 'Unknown Title',
+          url: video.url,
           duration: video.durationInSec || 0,
-          thumbnail: (video.thumbnails && video.thumbnails.length > 0) ? video.thumbnails[0].url : 'https://via.placeholder.com/120',
+          thumbnail: (video.thumbnails && Array.isArray(video.thumbnails) && video.thumbnails.length > 0) ? video.thumbnails[0].url : 'https://via.placeholder.com/120',
           author: video.channel?.name || 'Unknown Artist',
           requestedBy: member.user.id
         });

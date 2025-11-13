@@ -129,8 +129,8 @@ client.on('error', error => {
 
 process.on('SIGINT', async () => {
   console.log('\n🛑 Shutting down gracefully...');
-  const mongodb = require('./src/database/mongodb');
-  await mongodb.disconnect();
+  const dataStore = require('./src/database/LocalDataStore');
+  await dataStore.disconnect();
   client.destroy();
   process.exit(0);
 });

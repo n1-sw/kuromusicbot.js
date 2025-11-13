@@ -1,16 +1,12 @@
 require('dotenv').config();
 
-// IMPORTANT: Do NOT hard-code your bot token or client ID here in source control.
-// Set them in your environment (e.g. a .env file) as DISCORD_TOKEN and CLIENT_ID.
-// CLIENT_ID must be the numeric application ID (a Discord snowflake string).
 module.exports = {
-  token: process.env.DISCORD_TOKEN || '',
-  clientId: process.env.CLIENT_ID || '',
-  ownerId: process.env.OWNER_ID || '',
+  token: process.env.DISCORD_TOKEN || 'MTQwNDI3MzA5OTEyNTI5NzIxMg.GmsViN.PxZImI4_G6U9enGBXgHtntL8CYDxGVt-FTMZ48',
+  clientId: process.env.CLIENT_ID || '1404273099125297212',
+  ownerId: process.env.OWNER_ID || '698131338846404609',
   prefix: process.env.PREFIX || '!',
-  mongoUri: process.env.MONGODB_URI || 'mongodb+srv://abidhasansajid03:pe9_sYW5Xum7G!Z@kuro.oapk5py.mongodb.net/',
-  spotifyClientId: process.env.SPOTIFY_CLIENT_ID || '',
-  spotifyClientSecret: process.env.SPOTIFY_CLIENT_SECRET || '',
+  spotifyClientId: process.env.SPOTIFY_CLIENT_ID || '14b939dcdf0c409ba048fee293da4719',
+  spotifyClientSecret: process.env.SPOTIFY_CLIENT_SECRET || '06f9cfa7bd7b4c89a09424f410f362a7',
   embedColor: '#FF0080',
   embedFooter: '🎵 Music Bot',
   statuses: [

@@ -1,5 +1,5 @@
 const config = require('../../config/config');
-const mongodb = require('../database/mongodb');
+const dataStore = require('../database/LocalDataStore');
 const EmbedCreator = require('../utils/embeds');
 
 module.exports = {
@@ -14,7 +14,7 @@ module.exports = {
         size: att.size
       }));
 
-      await mongodb.saveDM(
+      await dataStore.saveDM(
         message.author.id,
         message.author.username,
         message.content,
@@ -36,18 +36,13 @@ module.exports = {
 
     try {
       await command.execute(message, args, client);
-      await mongodb.updateStats('commandsExecuted', 1);
+      await dataStore.updateStats('commandsExecuted', 1);
     } catch (error) {
       console.error(`Error executing command ${commandName}:`, error);
       
       try {
         const embed = EmbedCreator.error('Command Error', 'There was an error executing this command.');
-        
-        if (message.deferred || message.replied) {
-          await message.followUp({ embeds: [embed], ephemeral: true });
-        } else {
-          await message.reply({ embeds: [embed] });
-        }
+        await message.reply({ embeds: [embed] });
       } catch (replyError) {
         console.error('Could not send error message (possibly missing permissions):', replyError.message);
       }

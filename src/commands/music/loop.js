@@ -20,25 +20,28 @@ module.exports = {
   aliases: ['repeat'],
   async execute(interaction, args, client) {
     const isSlash = !args;
+    
+    if (isSlash) await interaction.deferReply();
+    
     const member = isSlash ? interaction.member : interaction.member;
 
     if (!member.voice.channel) {
       const embed = EmbedCreator.error('Not in Voice Channel', 'You need to be in a voice channel!');
-      return isSlash ? interaction.reply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
+      return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
     }
 
     const queue = musicPlayer.getQueue(member.guild.id);
 
     if (!queue.currentTrack) {
       const embed = EmbedCreator.error('Nothing Playing', 'There is nothing playing right now.');
-      return isSlash ? interaction.reply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
+      return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
     }
 
     const mode = isSlash ? interaction.options.getString('mode') : args[0]?.toLowerCase();
 
     if (!mode || !['off', 'track', 'queue'].includes(mode)) {
       const embed = EmbedCreator.error('Invalid Mode', 'Please specify a valid loop mode: `off`, `track`, or `queue`');
-      return isSlash ? interaction.reply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
+      return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
     }
 
     queue.setLoop(mode);
@@ -50,6 +53,6 @@ module.exports = {
     }[mode];
 
     const embed = EmbedCreator.success('Loop Mode Updated', modeText);
-    return isSlash ? interaction.reply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
+    return isSlash ? interaction.editReply({ embeds: [embed] }) : interaction.reply({ embeds: [embed] });
   }
 };

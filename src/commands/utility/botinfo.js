@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, version } = require('discord.js');
 const config = require('../../../config/config');
-const mongodb = require('../../database/mongodb');
+const dataStore = require('../../database/LocalDataStore');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -11,7 +11,7 @@ module.exports = {
   async execute(interaction, args, client) {
     const isSlash = !args;
 
-    const stats = await mongodb.getStats();
+    const stats = await dataStore.getStats();
     const uptime = process.uptime();
     const days = Math.floor(uptime / 86400);
     const hours = Math.floor(uptime / 3600) % 24;
