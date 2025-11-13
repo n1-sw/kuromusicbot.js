@@ -74,6 +74,19 @@ class MusicQueue {
   getQueue() {
     return this.tracks;
   }
+
+  cleanupProcess() {
+    if (this.ytDlpProcess) {
+      if (!this.ytDlpProcess.killed) {
+        try {
+          this.ytDlpProcess.kill();
+        } catch (err) {
+          // Process may have already exited
+        }
+      }
+      this.ytDlpProcess = null;
+    }
+  }
 }
 
 module.exports = MusicQueue;
